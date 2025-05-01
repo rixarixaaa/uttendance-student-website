@@ -1,0 +1,147 @@
+﻿@* Written by Judy Yang and Parisa Nawar for CS 4485.0w1, CS Project, starting April 11, 2025
+	NetID: JXY200013 and PXN210032
+
+    This page imports the question(s) and answer choices associated with the form password
+    from the database. 
+    If the student doesn't submit their quiz in time while they're accessing the page, it will
+    automatically submit whatever they have and be stored in the database.
+*@
+
+@page "/quiz/{formID}"
+@rendermode InteractiveServer
+
+@inject NavigationManager navigateManager
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject UserConnectionInfoService ConnectionService
+@inject SubmissionService SubmissionService
+@inject StudentService StudentService
+@using student_website.Models
+@using student_website.Services
+@using Microsoft.EntityFrameworkCore
+@using System.ComponentModel.DataAnnotations
+
+<!-- Written by Judy Yang, JXY200013 -->
+<PageTitle>Attendance Quiz</PageTitle>
+
+<h1>
+    Attendance Form for 
+    @if(student != null)
+    {
+        <span>@student.SFName @student.SLName</span>
+    }
+</h1>
+
+<div class="quiz-header">
+    @if(course != null)
+    {
+        <span>
+            @course.ClassSubject 
+            @course.ClassNum.@course.SectionNum?.ToString("000") -- 
+            @(dueDate?.ToString("MM/dd/yyyy"))
+        </span>
+    }
+    <span style="text-align: right">
+        Due at:
+        <span style="color: #E97502">
+            @(dueDate?.ToString("f"))
+        </span>
+    </span>
+</div>
+
+<!-- Written by Parisa Nawar, PXN210032 -->
+<div class="quiz-body">
+    @if (questions == null || !questions.Any())
+    {
+        <div>No Questions Found.</div>
+    }
+    else
+    {
+        @foreach (var question in questions)
+        {
+            <!-- Resets the optionNum for the label id -->
+            { optionNum = 0; }
+
+            <!-- Box around questions -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <p class="card-text">@question.ProblemStatement</p>
+                    <!-- Written by Judy Yang, JXY200013
+                    For each question, list the answer choices -->
+                    @foreach(var choice in question.Answerchoice)
+                    {
+                        <input type="radio" id="@optionNum" name="question @questionNum" style="margin-right: 5px;"/>
+                        <label for="@optionNum"> @choice.AnswerStatement </label><br/>
+                        { optionNum++; }
+                    }
+                </div>
+            </div>
+            <!-- Question number for group the answer choices -->
+            { questionNum++; }
+        }
+    }
+</div>
+
+<button class="btn btn-submit" @onclick="Submit">Submit</button>
+
+@code {
+    /* Written by Parisa Nawar for CS 4485.0w1, CS Project, starting April 24, 2025 
+     * NetID: PXN210032
+     */
+    [Parameter]
+    public string? formID { get; set; }
+    private DateTime? dueDate { get; set; }
+    private List<Question>? questions;
+    private string? userIP;
+    private int intID = 0;
+
+    /* Written by Judy Yang, JXY200013, starting April 26, 2025 */
+    private int studentID = 0;
+    private Student student;
+    private Class course;
+    private int optionNum = 0;
+    private int questionNum = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Get user IPAddress
+        var info = ConnectionService.GetUserConnectionInfo();
+        userIP = info.RemoteIpAddress;
+
+        /* Written by Parisa Nawar, PXN210032 */
+        //show date
+        intID = int.Parse(formID);
+        using var db = DbContextFactory.CreateDbContext();
+        var form = await db.Form.FirstOrDefaultAsync(f => f.FormID.Equals(intID));
+        dueDate = form?.CloseDateTime;
+
+        /* Written by Judy Yang, JXY200013 */
+        // Get student information
+        studentID = StudentService.StudentID;
+        student = await db.Student.FirstOrDefaultAsync(s => s.UTDID == studentID);
+
+        // Get class information
+        course = await db.Class.FirstOrDefaultAsync(c => c.CourseNum == form.FK_CourseNum);
+
+        /* Written by Parisa Nawar, PXN210032 */
+        //show questions
+        //questions = await db.Question.Where(q => q.FK_BankID == intID).ToListAsync();
+
+        /* Written by Judy Yang, JXY200013 */
+        // .Include() acts as a join
+        questions = await db.Has
+           .Where(h => h.FK_FormID == intID)
+           .Include(h => h.Question)
+           .ThenInclude(q => q.Answerchoice)
+           .Select(h => h.Question)
+           .ToListAsync();
+    }
+
+    /* Written by Judy Yang for CS 4485.0w1, CS Project, starting April 14, 2025
+     * NetID: JXY200013*/
+    // Adding async allows you to use await
+    private async Task Submit()
+    {
+        await SubmissionService.CreateAndInsertSubmissionAsync(userIP, intID, StudentService.StudentID);
+        navigateManager.NavigateTo("/submission");
+    }
+}
